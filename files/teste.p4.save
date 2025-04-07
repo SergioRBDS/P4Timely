@@ -1,0 +1,99 @@
+#if __TARGET_TOFINO__ == 2
+#include <t2na.p4>
+#else
+#include <tna.p4>
+#endif
+
+header ethernet_t {
+	bit<16> etherType;
+}
+
+struct headers{
+	ethernet_t ethernet;
+}
+
+struct metadata{
+	bit<8> ctrl;		
+}
+
+parser IngressParser(
+		packet_in packet,
+		out headers hdr,
+		out metadata md,
+		out ingress_intrinsic_metadata_t md2){
+	state start {
+		packet.extract(md2);
+		packet.advance(PORT_METADATA_SIZE);
+		
+		pktgen_timer_header_t pktgen_pd_hdr = packet.lookahead<pktgen_timer_header_t>();
+		transition select(pktgen_pd_hdr.app_id) {
+			1 : parse_pktgen_timer;
+			default : reject;
+		}	
+	}
+	
+	state parse_pktgen_timer{
+		md.ctrl = 2;
+		transition accept;
+	}
+}
+
+control Ingress(
+		inout headers hdr,
+		inout metadata md,
+		in ingress_intrinsic_metadata_t md2,
+		in ingress_intrinsic_metadata_from_parser_t parser_md,
+		inout ingress_intrinsic_metadata_for_deparser_t deparser_md,
+		inout ingress_intrinsic_metadata_for_tm_t tm_md){
+	apply{
+		//parser_md.global_tstamp;
+		if(md.ctrl==2){ 
+                        tm_md.ucast_egress_port = 160;
+                }
+
+	}
+}
+
+control IngressDeparser(
+		packet_out packet,
+		inout headers hdr,
+		in metadata md,
+		in ingress_intrinsic_metadata_for_deparser_t deparser_md){
+	apply{
+		
+	}
+}
+
+parser EgressParser(
+		packet_in packet,
+		out headers hdr,
+		out metadata md,
+		out egress_intrinsic_metadata_t md2){
+	state start{
+		transition accept;
+	}
+}
+
+control Egress(
+		inout headers hdr,
+		inout metadata md,
+		in egress_intrinsic_metadata_t md2,
+		in egress_intrinsic_metadata_from_parser_t parser_md,
+		inout egress_intrinsic_metadata_for_deparser_t deparser_md,
+		inout egress_intrinsic_metadata_for_output_port_t output_port_md){
+	apply{
+		//parser_md.global_tstamp;
+	}
+}
+
+control EgressDeparser(
+		packet_out packet,
+		inout headers hdr,
+		in metadata eg_md,
+		in egress_intrinsic_metadata_for_deparser_t deparser_md){
+	apply{}
+}
+
+Pipeline(IngressParser(),Ingress(),IngressDeparser(),EgressParser(),Egress(),EgressDeparser()) pipe;
+
+Switch(pipe) main;
